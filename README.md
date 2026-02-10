@@ -43,7 +43,7 @@
 │            Apache Spark 分布式数据处理层                       │
 │  Spark ETL (数据清洗/OD配对/聚合) │ DBSCAN 聚类 │ 推荐引擎    │
 ├──────────────────────────────────────────────────────────────┤
-│                     SQLite (dev) / PostgreSQL (prod)          │
+│                        MySQL 数据库                           │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -52,7 +52,7 @@
 1. **展示层** — Vue 3 SPA，ECharts 多维度可视化
 2. **服务层** — Django REST Framework 提供 RESTful API
 3. **计算层** — Apache Spark 承担 ETL 数据清洗、OD 配对、客流聚合等大数据处理任务
-4. **存储层** — 关系数据库持久化计算结果
+4. **存储层** — MySQL 数据库持久化计算结果，开发阶段使用 SQLite 快速验证
 
 ---
 
@@ -117,7 +117,7 @@ Token 鉴权登录/注册，粒子动画背景，路由守卫自动跳转。
 | **用户模型** | `accounts.UserProfile` | 继承 `AbstractUser`，角色: admin / analyst / viewer |
 | **聚类算法** | scikit-learn DBSCAN | 基于站点经纬度 + 客流量进行空间聚类 |
 | **推荐引擎** | NumPy | Z-Score 异常检测 + 余弦相似度 + 加权评分 |
-| **数据库** | SQLite (dev) | 生产可切换 PostgreSQL / MySQL |
+| **数据库** | MySQL 8.0 | 开发可用 SQLite，生产部署使用 MySQL |
 | **跨域** | django-cors-headers | 开发模式 `CORS_ALLOW_ALL_ORIGINS = True` |
 
 ---
@@ -139,7 +139,7 @@ Demo/
 │   ├── transit_system/               # Django 项目配置
 │   │   ├── settings.py               # zh-hans / Asia-Shanghai / Token Auth
 │   │   └── urls.py                   # /api/auth/ + /api/ 路由挂载
-│   └── db.sqlite3
+│   └── db.sqlite3                    # 开发用 SQLite，生产切换 MySQL
 │
 ├── frontend/                         # Vue 3 SPA
 │   ├── src/
@@ -208,9 +208,14 @@ cd frontend && npm install && cd ..
 ### 2. 数据库初始化
 
 ```bash
+# 开发环境（SQLite，无需额外配置）
 cd backend
 python manage.py makemigrations accounts analysis
 python manage.py migrate
+
+# 生产环境（MySQL）— 先在 MySQL 中创建数据库：
+# CREATE DATABASE transit_db DEFAULT CHARSET utf8mb4;
+# 然后在 settings.py 中配置 DATABASES（见部署指南），再执行 migrate
 
 # 创建管理员账号
 python manage.py createsuperuser
@@ -428,11 +433,14 @@ $$\text{score} = \frac{\sum v_i \times w_i}{\sum w_i}$$
 
 ### 开发环境
 
-默认 SQLite + Vite 代理，安装依赖后开箱即用。
+默认 SQLite + Vite 代理，安装依赖后开箱即用。生产环境切换 MySQL 数据库。
 
 ### 生产环境
 
 ```bash
+# 安装 MySQL 驱动
+pip install mysqlclient
+
 # 前端构建
 cd frontend && npm run build   # 输出到 dist/
 
@@ -441,13 +449,32 @@ export DJANGO_SECRET_KEY="your-production-secret"
 export DJANGO_DEBUG=False
 ```
 
+**MySQL 数据库配置（settings.py）：**
+
+```python
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'transit_db',
+        'USER': 'root',
+        'PASSWORD': 'your-password',
+        'HOST': '127.0.0.1',
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        },
+    }
+}
+```
+
 **建议配置：**
 
 | 组件 | 生产推荐 |
 |------|---------|
 | 前端托管 | Nginx 托管 `dist/` 静态文件 |
 | API 反代 | Nginx → Gunicorn/uWSGI :8000 |
-| 数据库 | PostgreSQL / MySQL |
+| 数据库 | MySQL 8.0+ |
 | CORS | 配置 `CORS_ALLOWED_ORIGINS` 白名单 |
 | HTTPS | Let's Encrypt + Nginx SSL |
 | 静态文件 | `python manage.py collectstatic` |
