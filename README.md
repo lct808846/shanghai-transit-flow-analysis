@@ -1,7 +1,8 @@
-# 上海公共交通客流时空分布分析系统
+# 基于 Spark 的上海市公共交通客流时空分布分析系统
 
-基于 **Django REST Framework + Vue 3 + ECharts** 的全栈数据分析平台，实现上海市公共交通客流的时空可视化、DBSCAN 聚类分析与智能出行推荐。
+基于 **Apache Spark + Django REST Framework + Vue 3 + ECharts** 的全栈大数据分析平台。采用 Spark 作为分布式数据处理引擎，实现上海市公共交通客流数据的 ETL 清洗、时空可视化、DBSCAN 聚类分析与智能出行推荐。
 
+![Spark](https://img.shields.io/badge/Apache%20Spark-3.5+-E25A1C?logo=apachespark&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-5.1-092E20?logo=django&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D?logo=vue.js&logoColor=white)
@@ -18,6 +19,7 @@
 - [技术栈](#技术栈)
 - [项目结构](#项目结构)
 - [快速开始](#快速开始)
+- [Spark 数据处理](#spark-数据处理)
 - [数据模型](#数据模型)
 - [API 接口](#api-接口)
 - [核心算法](#核心算法)
@@ -38,13 +40,19 @@
 │              Django REST Framework (8000)                     │
 │     accounts (认证)  │  analysis (15+ API endpoints)         │
 ├──────────────────────────────────────────────────────────────┤
-│  Pandas ETL  │  DBSCAN 聚类  │  Z-Score + 余弦相似度推荐引擎  │
+│            Apache Spark 分布式数据处理层                       │
+│  Spark ETL (数据清洗/OD配对/聚合) │ DBSCAN 聚类 │ 推荐引擎    │
 ├──────────────────────────────────────────────────────────────┤
 │                     SQLite (dev) / PostgreSQL (prod)          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-三层架构：前端 SPA → DRF REST API → 数据层（ORM + 离线脚本）。Vite 开发模式下将 `/api` 代理到 Django，生产环境由 Nginx 反向代理。
+四层架构设计：
+
+1. **展示层** — Vue 3 SPA，ECharts 多维度可视化
+2. **服务层** — Django REST Framework 提供 RESTful API
+3. **计算层** — Apache Spark 承担 ETL 数据清洗、OD 配对、客流聚合等大数据处理任务
+4. **存储层** — 关系数据库持久化计算结果
 
 ---
 
@@ -98,6 +106,7 @@ Token 鉴权登录/注册，粒子动画背景，路由守卫自动跳转。
 
 | 层级 | 技术 | 说明 |
 |------|------|------|
+| **大数据处理** | Apache Spark 3.5 (PySpark) | 分布式 ETL：数据清洗、窗口函数 OD 配对、客流聚合 |
 | **前端框架** | Vue 3.5 (Composition API) | 无 Pinia/Vuex，用 `reactive()` composables 管理状态 |
 | **构建工具** | Vite 6 | HMR + `/api` 代理 → Django 8000 |
 | **可视化** | ECharts 6 | 柱状/折线/散点/Sankey/饼图/热力图/气泡图 |
@@ -106,7 +115,6 @@ Token 鉴权登录/注册，粒子动画背景，路由守卫自动跳转。
 | **样式** | SCSS | 全局暗黑科技风主题 (`global.scss`) |
 | **后端框架** | Django 5.1 + DRF | RESTful API，Token 认证，`PageNumberPagination(50)` |
 | **用户模型** | `accounts.UserProfile` | 继承 `AbstractUser`，角色: admin / analyst / viewer |
-| **数据处理** | Pandas | ETL：CSV → OD 配对 → 站点统计 → 写入 DB |
 | **聚类算法** | scikit-learn DBSCAN | 基于站点经纬度 + 客流量进行空间聚类 |
 | **推荐引擎** | NumPy | Z-Score 异常检测 + 余弦相似度 + 加权评分 |
 | **数据库** | SQLite (dev) | 生产可切换 PostgreSQL / MySQL |
@@ -153,11 +161,12 @@ Demo/
 │   ├── vite.config.js                # @ → src/ 别名 + API 代理
 │   └── package.json
 │
-├── spark_analysis/                   # 离线数据分析脚本
-│   ├── etl_process.py                # Pandas ETL (CSV → OdFlow + StationFlowStats)
-│   ├── dbscan_clustering.py          # DBSCAN 聚类 → ClusterResult
-│   ├── recommendation_engine.py      # 推荐引擎 (4 策略 × 3 算法)
-│   ├── spark_etl.py                  # PySpark ETL (可选)
+├── spark_analysis/                   # Spark 大数据处理 & 分析引擎
+│   ├── spark_etl.py                  # PySpark 分布式 ETL 主流程
+│   ├── init_spark.py                 # SparkSession 初始化与配置
+│   ├── etl_process.py                # 轻量 ETL (Pandas 版，用于快速调试)
+│   ├── dbscan_clustering.py          # DBSCAN 空间聚类分析
+│   ├── recommendation_engine.py      # 智能推荐引擎 (4 策略 × 3 算法)
 │   ├── update_station_coords.py      # 站点经纬度更新
 │   └── update_district.py            # 行政区信息更新
 │
@@ -178,6 +187,8 @@ Demo/
 ### 环境要求
 
 - Python 3.10+
+- Java 8+（Spark 运行依赖）
+- Apache Spark 3.5+ / PySpark
 - Node.js 18+
 - npm 或 yarn
 
@@ -206,15 +217,16 @@ python manage.py createsuperuser
 # 或使用默认测试账号: admin / admin123
 ```
 
-### 3. 数据生成 & ETL
+### 3. 数据生成 & Spark ETL
 
 ```bash
 # 生成模拟数据 (如需要)
 cd data && python generate_mock_data.py && cd ..
 
-# ETL: 刷卡记录 → OD 配对 → 站点统计 → 写入 DB
+# Spark ETL: 分布式数据清洗 → OD 配对 → 客流聚合 → 写入 DB
 cd spark_analysis
-python etl_process.py
+python spark_etl.py
+# 或使用轻量版 (无需 Spark 环境): python etl_process.py
 
 # DBSCAN 聚类 (地图/聚类页面需要)
 python dbscan_clustering.py
@@ -235,6 +247,45 @@ npm run dev
 ### 5. 访问系统
 
 浏览器打开 `http://localhost:5173`，使用 `admin / admin123` 登录。
+
+---
+
+## Spark 数据处理
+
+### ETL 处理流程
+
+系统采用 PySpark 作为核心 ETL 引擎，处理原始刷卡记录数据：
+
+```
+原始刷卡 CSV ──▸ Spark 读取 ──▸ 数据清洗(去重/去空) ──▸ 窗口函数 OD 配对 ──▸ 客流聚合 ──▸ 写入 DB
+```
+
+**核心处理步骤：**
+
+| 阶段 | Spark 操作 | 说明 |
+|------|-----------|------|
+| 数据读取 | `spark.read.csv()` | 读取百万级刷卡记录，自动推断 Schema |
+| 数据清洗 | `dropna()` + `dropDuplicates()` | 去除空值与重复记录 |
+| OD 配对 | `Window.partitionBy('card_id').orderBy('swipe_time')` | 使用 Spark 窗口函数 `lead()` 按乘客 ID 分区，配对进站/出站记录 |
+| 时长计算 | `unix_timestamp` 差值 | 计算每次出行耗时（分钟） |
+| 客流聚合 | `groupBy().agg()` | 按日期、时段、站点维度聚合客流量与平均时长 |
+| 站点统计 | `join` + `fillna` | 分别统计进站/出站客流后 outer join，计算总客流 |
+| 持久化 | `collect()` → Django ORM `bulk_create` | Spark 计算结果收集后批量写入关系数据库 |
+
+### Spark 配置
+
+```python
+# spark_analysis/init_spark.py
+SparkSession.builder
+    .appName("Shanghai Transit ETL")
+    .master("local[*]")           # 本地模式，利用全部 CPU 核心
+    .config("spark.driver.memory", "2g")
+    .config("spark.sql.shuffle.partitions", "4")
+    .enableHiveSupport()
+    .getOrCreate()
+```
+
+开发环境使用 `local[*]` 模式，生产环境可切换为 `yarn` 或 `standalone` 集群模式。同时提供 Pandas 轻量版 (`etl_process.py`) 用于快速调试，两者输出结果一致。
 
 ---
 
@@ -324,6 +375,13 @@ LoginLog (登录日志)
 
 ## 核心算法
 
+### Spark 分布式 ETL
+
+使用 PySpark DataFrame API 处理原始刷卡数据。关键技术点：
+- **窗口函数** (`Window.partitionBy().orderBy()`) — 按乘客分区排序，使用 `lead()` 实现相邻记录配对，避免 shuffle join
+- **分布式聚合** (`groupBy().agg()`) — 按时间/空间维度并行聚合，支持百万级记录处理
+- **自动 Schema 推断** — `inferSchema=True` 自动识别数据类型，减少预处理代码
+
 ### DBSCAN 空间聚类
 
 基于站点经纬度，使用 `sklearn.cluster.DBSCAN` 对 55 个站点进行密度聚类。前端可交互调参 `eps`（邻域半径）和 `min_samples`（最小样本数），后端实时计算并返回聚类标签与热点标记。
@@ -361,8 +419,8 @@ $$\text{score} = \frac{\sum v_i \times w_i}{\sum w_i}$$
 | `mock_swipe_records.csv` | 模拟刷卡记录（card_id, station_name, swipe_type, swipe_time） |
 | `mock_station_flow.csv` | 站点客流统计原始数据 |
 | **55 个站点** | 上海真实地铁站名称与经纬度坐标 |
-| **ETL 流程** | 刷卡配对 → OD 计算 → 时段聚合 → StationFlowStats & OdFlow |
-| **执行顺序** | `generate_mock_data.py` → `etl_process.py` → `dbscan_clustering.py` |
+| **Spark ETL** | 刷卡数据 → Spark 清洗 → 窗口函数 OD 配对 → 分布式聚合 → 写入 DB |
+| **执行顺序** | `generate_mock_data.py` → `spark_etl.py` → `dbscan_clustering.py` |
 
 ---
 
